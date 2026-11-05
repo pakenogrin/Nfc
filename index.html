@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>NFC Маршрут</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root{--bg:#f4f4f1;--card:#fff;--ink:#16161a;--mut:#6b6b72;--acc:#2a3cff;--ok:#1f7a4d;--okbg:#e2f3e9;--line:#e3e3df;--bad:#b3261e}
+@media(prefers-color-scheme:dark){:root{--bg:#121214;--card:#1c1c20;--ink:#f1f1f3;--mut:#9a9aa3;--acc:#7b88ff;--ok:#6fd39c;--okbg:#1b3326;--line:#2c2c32;--bad:#ff8a80}}
+*{box-sizing:border-box}
+body{margin:0;font:16px/1.45 -apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);padding:0 16px calc(84px + env(safe-area-inset-bottom,0px))}
+h1{font-size:26px;line-height:1.15;margin:20px 0 8px}
+p{margin:0 0 12px}.mut{color:var(--mut);font-size:14px}
+input{width:100%;font:inherit;padding:14px;border-radius:14px;border:1.5px solid var(--line);background:var(--card);color:var(--ink)}
+button{font:inherit;cursor:pointer;border:0;border-radius:14px;padding:14px;background:var(--acc);color:#fff;font-weight:600}
+button.sec{background:var(--card);color:var(--ink);border:1.5px solid var(--line)}
+.row{display:flex;gap:8px}.row>*{flex:1}.row>.fix{flex:0 0 52px}
+.seg{display:flex;background:var(--line);border-radius:14px;padding:4px;gap:4px;margin:8px 0}
+.seg button{background:none;color:var(--mut);padding:10px}.seg button.on{background:var(--ink);color:var(--bg)}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 16px}
+.chip{padding:8px 12px;border-radius:20px;background:var(--card);border:1.5px solid var(--line);color:var(--ink);font-weight:500;font-size:14px}
+.chip.on{background:var(--acc);border-color:var(--acc);color:#fff}
+.card{background:var(--card);border-radius:16px;padding:14px;margin:10px 0}
+.top{display:flex;gap:10px;align-items:flex-start}
+.n{flex:0 0 30px;height:30px;border-radius:50%;background:var(--acc);color:#fff;display:grid;place-items:center;font-weight:700;font-size:14px}
+.tag{display:inline-block;font-size:12px;padding:3px 8px;border-radius:8px;background:var(--line);color:var(--mut);margin:4px 4px 0 0}
+.tag.ok{background:var(--okbg);color:var(--ok)}
+.bld{margin:18px 0 4px;font-weight:700}
+nav{position:fixed;left:0;right:0;bottom:0;display:flex;background:var(--card);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px)}
+nav button{background:none;color:var(--mut);border-radius:0;padding:14px 4px;font-size:14px}nav button.on{color:var(--acc)}
+.hide{display:none}.err{color:var(--bad)}
+.sheet{position:fixed;inset:0;background:var(--bg);overflow:auto;padding:16px 16px 40px;z-index:5}
+.sheet h3{margin:18px 0 4px}.sheet blockquote{margin:0 0 8px;color:var(--mut);border-left:3px solid var(--line);padding-left:10px}
+.st{display:flex;gap:6px;margin-top:10px}.st button{padding:9px;font-size:13px}
+</style>
+</head>
+<body>
+<nav>
+ <button id="t1" class="on" onclick="tab(1)">Поиск</button>
+ <button id="t2" onclick="tab(2)">Маршрут</button>
+ <button id="t3" onclick="tab(3)">Поставили</button>
+</nav>
+
+<section id="p1">
+ <h1>Куда идти продавать NFC-карточки</h1>
+ <p class="mut">Укажите район. Покажу маленькие заведения рядом, где скорее всего хозяин на месте, и дам пеший маршрут со сценарием.</p>
+ <div class="row"><input id="addr" placeholder="Город, улица, метро или адрес" class="" style="flex:1"><button class="sec fix" onclick="geo()">📍</button></div>
+ <p class="mut" id="found" style="margin-top:6px"></p>
+ <b>Сколько есть времени</b>
+ <div class="seg" id="tm"><button onclick="setT(1,this)" class="on">1 час</button><button onclick="setT(2,this)">2 часа</button><button onclick="setT(4,this)">4 часа</button></div>
+ <p class="mut" id="rad"></p>
+ <b>Какие заведения</b>
+ <div class="chips" id="cats"></div>
+ <button style="width:100%" onclick="search()">Найти места</button>
+ <p id="msg" class="mut" style="margin-top:12px"></p>
+</section>
+
+<section id="p2" class="hide"><div id="route"></div></section>
+<section id="p3" class="hide"><h1>Поставили</h1><div id="done"></div></section>
+<div id="sheet" class="sheet hide"></div>
+
+<script>
+const tg=window.Telegram&&Telegram.WebApp;if(tg){tg.ready();tg.expand()}
+const CATS={
+ "Красота":['["shop"~"hairdresser|beauty|nails|massage|cosmetics|tattoo"]','["beauty"]'],
+ "Кафе":['["amenity"~"cafe|fast_food"]'],
+ "Ателье и ремонт":['["craft"~"tailor|shoemaker|electronics_repair"]','["shop"~"tailor|mobile_phone|computer|repair"]'],
+ "Цветы и подарки":['["shop"~"florist|gift|bakery|confectionery"]'],
+ "Здоровье":['["amenity"~"dentist|clinic"]','["healthcare"]'],
+ "Авто":['["shop"="car_repair"]','["amenity"="car_wash"]'],
+ "Магазины":['["shop"~"convenience|greengrocer|clothes|pet|books|stationery"]']
+};
+const HOURS={1:500,2:800,4:1200};
+let T=1,pt=null,sel=new Set(["Красота","Кафе","Ателье и ремонт"]),res=[],log=JSON.parse(localStorage.getItem("nfclog")||"{}");
+const $=id=>document.getElementById(id);
+function drawCats(){$("cats").innerHTML=Object.keys(CATS).map(c=>`<button class="chip ${sel.has(c)?'on':''}" onclick="togg('${c}')">${c}</button>`).join("")}
+function togg(c){sel.has(c)?sel.delete(c):sel.add(c);drawCats()}
+function setT(h,b){T=h;[...$("tm").children].forEach(x=>x.classList.remove("on"));b.classList.add("on");rad()}
+function rad(){$("rad").textContent=`Смотрим всё в ${HOURS[T]} м вокруг.`}
+function tab(n){[1,2,3].forEach(i=>{$("p"+i).classList.toggle("hide",i!==n);$("t"+i).classList.toggle("on",i===n)});if(n===3)drawDone()}
+function geo(){navigator.geolocation.getCurrentPosition(p=>{pt={lat:p.coords.latitude,lon:p.coords.longitude};$("addr").value="Моё местоположение";$("found").textContent=""},()=>$("msg").innerHTML='<span class="err">Нет доступа к геопозиции. Введите адрес.</span>')}
+async function geocode(q){
+ const r=await fetch("https://nominatim.openstreetmap.org/search?format=json&limit=1&accept-language=ru&q="+encodeURIComponent(q));
+ const j=await r.json();if(!j.length)return null;return{lat:+j[0].lat,lon:+j[0].lon,name:j[0].display_name}}
+function dist(a,b){const R=6371e3,t=x=>x*Math.PI/180,dl=t(b.lat-a.lat),dn=t(b.lon-a.lon);
+ const h=Math.sin(dl/2)**2+Math.cos(t(a.lat))*Math.cos(t(b.lat))*Math.sin(dn/2)**2;return 2*R*Math.asin(Math.sqrt(h))}
+async function search(){
+ const q=$("addr").value.trim();$("msg").className="mut";
+ if(!pt||(q&&q!=="Моё местоположение")){
+  if(!q){$("msg").textContent="Введите адрес или нажмите 📍";return}
+  $("msg").textContent="Ищу адрес…";const g=await geocode(q).catch(()=>null);
+  if(!g){$("msg").innerHTML='<span class="err">Не нашёл такое место. Добавьте город: «Казань, Баумана».</span>';return}
+  pt=g;$("found").textContent="Точка: "+g.name}
+ if(!sel.size){$("msg").textContent="Выберите хотя бы один вид заведений";return}
+ $("msg").textContent="Смотрю карту…";
+ const R=HOURS[T];let body="";
+ sel.forEach(c=>CATS[c].forEach(f=>{body+=`nwr(around:${R},${pt.lat},${pt.lon})${f};`}));
+ let data;
+ try{const r=await fetch("https://overpass-api.de/api/interpreter",{method:"POST",body:"data="+encodeURIComponent(`[out:json][timeout:25];(${body});out center tags;`)});data=await r.json()}
+ catch(e){$("msg").innerHTML='<span class="err">Карта не ответила. Попробуйте ещё раз.</span>';return}
+ const all=data.elements.map(e=>({id:e.type+e.id,tags:e.tags||{},lat:e.lat??e.center?.lat,lon:e.lon??e.center?.lon})).filter(e=>e.lat&&e.tags.name);
+ const cnt={};all.forEach(e=>{const k=e.tags.name.toLowerCase();cnt[k]=(cnt[k]||0)+1});
+ const st={chain:0,basement:0,office:0,appt:0};
+ let ok=all.filter(e=>{const t=e.tags;
+  if(t.brand||t["brand:wikidata"]||cnt[t.name.toLowerCase()]>1){st.chain++;return false}
+  if(t.level&&parseInt(t.level)<0||t.location==="underground"){st.basement++;return false}
+  if(t.office||t.access==="private"||t.access==="permit"){st.office++;return false}
+  if(t.appointment==="only"||t["appointment_only"]==="yes"){st.appt++;return false}
+  return true});
+ ok.forEach(e=>{const t=e.tags;e.street=t["addr:street"]||"";e.house=t["addr:housenumber"]||"";e.bkey=e.street&&e.house?e.street+" "+e.house:"";e.phone=!!(t.phone||t["contact:phone"]);e.owner=/beauty|hairdresser|nails|tailor|florist|dentist|massage/.test(JSON.stringify(t))});
+ // greedy route, 4 min per place + walk 80 m/min
+ const budget=T*60;let cur=pt,min=0,left=[...ok],r=[],walk=0;
+ while(left.length){
+  left.sort((a,b)=>dist(cur,a)-dist(cur,b));
+  const n=left[0],d=dist(cur,n),add=d/80+4;
+  if(min+add>budget)break;min+=add;walk+=d;r.push({...n,d:Math.round(d)});cur=n;left.shift()}
+ // pull same-building places together
+ const seen=new Set();const ord=[];
+ r.forEach(e=>{if(seen.has(e.id))return;ord.push(e);seen.add(e.id);
+  if(e.bkey)r.forEach(o=>{if(!seen.has(o.id)&&o.bkey===e.bkey){ord.push(o);seen.add(o.id)}})});
+ res={route:ord,rest:left,walk:Math.round(walk),stats:st,total:all.length};
+ $("msg").textContent="";render();tab(2)}
+function yaLink(e){return "https://yandex.ru/maps/?text="+encodeURIComponent(e.tags.name+" "+(e.street?e.street+" "+e.house:""))+"&ll="+e.lon+"%2C"+e.lat+"&z=18"}
+function yaRoute(){const p=res.route.map(e=>e.lat+","+e.lon);return "https://yandex.ru/maps/?rtext="+[pt.lat+","+pt.lon,...p].join("~")+"&rtt=pd"}
+function render(){
+ const r=res.route,s=res.stats;let h=`<h1>${r.length} мест за ${T} ч</h1><p class="mut">${res.walk} м пешком. На место около 4 минут: отказ занимает минуту, продажа до пяти.</p>
+ <a href="${yaRoute()}" target="_blank"><button style="width:100%">Открыть маршрут в Яндекс Картах</button></a>
+ <div class="card mut">Нашёл ${res.total}. Убрал: сети и повторы ${s.chain}, подвалы ${s.basement}, офисы ${s.office}, по записи ${s.appt}.<br>Число отзывов в OpenStreetMap нет: открывайте карточку места в Яндексе и смотрите, где их мало.</div>`;
+ if(!r.length)h+='<p>Ничего не нашлось. Увеличьте время или добавьте виды заведений.</p>';
+ let last="";
+ r.forEach((e,i)=>{
+  if(e.bkey!==last){h+=`<div class="bld">${e.bkey?e.bkey:"Адрес не указан"}</div>`;last=e.bkey}
+  const t=e.tags,k=t.shop||t.amenity||t.craft||"";const l=log[e.id];
+  h+=`<div class="card"><div class="top"><div class="n">${i+1}</div><div style="flex:1"><b>${esc(t.name)}</b><div class="mut">${esc(k)} · ${e.d} м</div>
+  ${e.owner?'<span class="tag ok">Хозяин, скорее всего, на месте</span>':''}${l?`<span class="tag">${l}</span>`:''}</div></div>
+  <div class="row" style="margin-top:10px"><button onclick="script(${i})">Как зайти</button><a href="${yaLink(e)}" target="_blank" style="flex:1;display:block"><button class="sec" style="width:100%">Отзывы в Яндексе</button></a></div>
+  <div class="st"><button class="sec" onclick="mark(${i},'Поставили')">Поставили</button><button class="sec" onclick="mark(${i},'Отказ')">Отказ</button><button class="sec" onclick="mark(${i},'Зайти позже')">Позже</button></div></div>`});
+ $("route").innerHTML=h}
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
+function mark(i,v){const e=res.route[i];log[e.id]=v;localStorage.setItem("nfclog",JSON.stringify(log));localStorage.setItem("nfcname_"+e.id,e.tags.name);render()}
+function drawDone(){const ids=Object.keys(log);$("done").innerHTML=ids.length?ids.map(id=>`<div class="card"><b>${esc(localStorage.getItem("nfcname_"+id)||id)}</b><div class="mut">${log[id]}</div></div>`).join(""):'<p class="mut">Пока пусто. Отмечайте итог после каждого захода.</p>'}
+function script(i){const e=res.route[i],n=e.tags.name;
+ const txt=`Сценарий: ${n}
+1. Вход: «Здравствуйте! Вы хозяин? Мы на две минуты, по вашей карточке на Яндекс Картах.»
+2. Если хозяина нет: «Как его зовут и когда он бывает? Оставлю образец: пусть поднесёт телефон.» Запишите имя и время.
+3. Крючок: «У вас мало отзывов. Хотите, чтобы довольные клиенты оставляли отзыв в одно касание?»
+4. Показ: «Поднесите свой телефон вот сюда.» Открывается страница отзыва.
+5. Предложение: «Поставим карточку на кассу. Настроим на вашу страницу и проверим на телефонах сотрудников, десять минут.»
+6. Закрытие: «Ставим сегодня?» И замолчать: дать ответить.
+Если возражают:
+«Яндекс даёт QR бесплатно» — «Да, бумажный: его надо найти и навести камеру. Здесь приложил, как к терминалу.»
+«Дорого» — «Один новый клиент, который выбрал вас, сколько приносит? Карточка служит годами.»
+«Подумаю» — «Конечно. Что смущает: цена или что не будут прикладывать? Давайте поставим, неделю посмотрите.»
+«Это не накрутка?» — «Нет. Отзыв пишет ваш настоящий клиент со своего телефона. Скидку за отзыв давать нельзя.»
+Нельзя: обещать «+50 отзывов», скрывать плохие отзывы, давать скидки за отзыв.`;
+ const html=txt.split("\n").map((l,j)=>j===0?`<h1>Как зайти<br><small>${esc(n)}</small></h1>`:/^\d\./.test(l)||l.startsWith("«")||l.startsWith("Нельзя")||l.startsWith("Если")?`<p>${esc(l)}</p>`:`<p>${esc(l)}</p>`).join("");
+ $("sheet").innerHTML=html+`<div class="row"><button onclick="navigator.clipboard.writeText(\`${txt.replace(/`/g,"")}\`);this.textContent='Скопировано'">Скопировать сценарий</button><button class="sec" onclick="$('sheet').classList.add('hide')">Закрыть</button></div>`;
+ $("sheet").classList.remove("hide");$("sheet").scrollTop=0}
+drawCats();rad();
+</script>
+</body>
+</html>
